@@ -38,8 +38,8 @@ public class Simulation {
 
 	private void round(int r) {
 		System.out.println("Running simulation round " + r + " out of " + lastRound);
-		forwardingPhase();
-		if (r < h) {
+		if (r <= h) {
+			forwardingPhase();
 			return;
 		}
 		pullPhase();
@@ -48,13 +48,12 @@ public class Simulation {
 	private void forwardingPhase() {
 		while (!infectedPeers.isEmpty()) {
 			int p = infectedPeers.removeFirst();
-			// Peer is infected in the first time
-			if (!peers[p]) {
-				peers[p] = true;
-				infectedCount++;
-			} else {
+			// Peer has already been infected
+			if (peers[p]) {
 				continue;
 			}
+			peers[p] = true;
+			infectedCount++;
 			for (int q : selectRandomPeers(k, n)) {
 				// If current peer has not been infected yet
 				newInfections.add(q);
