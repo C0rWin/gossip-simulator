@@ -109,10 +109,8 @@ public class Simulation {
     	w.println(String.format(csvPattern, r, h, k, n, infectedCount, msgCount));
     }
     
-    
-
     public static void main(String[] args) {
-    	IntStream.iterate(10, i -> i * 2).limit(10000).parallel().forEach(n -> {
+    	IntStream.iterate(10, i -> i * 2).limit((long) Math.log(10000)).parallel().forEach(n -> {
     		int maxH = (int) Math.log(n) * 2;
     		IntStream.range(1, maxH).parallel().forEach(h -> {
     			IntStream.iterate(1, i -> i * 2).limit((long) Math.log(n)).forEach(k -> {
