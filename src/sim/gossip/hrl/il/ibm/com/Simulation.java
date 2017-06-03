@@ -1,9 +1,14 @@
 package sim.gossip.hrl.il.ibm.com;
 
+import java.io.FileNotFoundException;
+import java.io.PrintWriter;
 import java.util.*;
+import java.util.stream.IntStream;
 
 public class Simulation {
 
+	private static final String csvPattern = "%d,%d,%d,%d,%d,%d";
+	
     private int h;
     private int k;
     private int n;
@@ -12,6 +17,9 @@ public class Simulation {
     private Set<Integer> newInfections = new HashSet<Integer>();
     private LinkedList<Integer> infectedPeers = new LinkedList<Integer>();
     private int infectedCount;
+    private Random rnd = new Random(System.currentTimeMillis());
+    private int msgCount;
+    private PrintWriter w;
 
     public Simulation(int h, int k, int n) {
         if (k > n) {
@@ -21,25 +29,32 @@ public class Simulation {
         this.k = k;
         this.n = n;
         this.peers = new boolean[n];
+        try {
+			w = new PrintWriter(String.format("n%d-k%d-h%d.csv", n, k, h));
+			w.println("r,h,k,n,infected,msgs");
+		} catch (FileNotFoundException e) {
+			throw new RuntimeException(e);
+		}
     }
 
     public void run() {
         lastRound = (int) (n * Math.log(n));
         // Some peer is infected at first
         infectedPeers.add((int) (Math.random() * n));
-        for (int i = 0; i < lastRound && infectedCount < n; i++) {
+        for (int i = 0; i < lastRound; i++) {
             round(i);
         }
-        System.out.println("Infected:" + infectedCount + " out of " + n);
+        w.flush();
+        w.close();
     }
 
     private void round(int r) {
-        System.out.println("Running simulation round " + r + " out of " + lastRound);
         if (r <= h) {
             forwardingPhase();
-            return;
+        } else {
+        	pullPhase();
         }
-        pullPhase();
+        log(r);
     } // round
 
     private void forwardingPhase() {
@@ -51,7 +66,7 @@ public class Simulation {
             }
             peers[p] = true;
             infectedCount++;
-
+            msgCount += k;
             newInfections.addAll(selectRandomPeers(k, n));
         } // while
 
@@ -68,6 +83,7 @@ public class Simulation {
             }
             // Else select some peers to pull the message from
             boolean pullSucceeded = selectRandomPeers(k, n).stream().anyMatch(q -> peers[q]);
+            msgCount += k;
             if (pullSucceeded) {
                 peers[p] = true;
                 infectedCount++;
@@ -78,7 +94,7 @@ public class Simulation {
     private List<Integer> selectRandomPeers(int k, int n) {
         List<Integer> peers = new ArrayList<>();
         // N >> k so it's ok not to check corner cases
-        Random rnd = new Random(System.currentTimeMillis());
+        
         while (peers.size() < k) {
             int p = rnd.nextInt(n);
             if (peers.contains(p)) {
@@ -88,8 +104,24 @@ public class Simulation {
         } 
         return peers;
     }
+    
+    private void log(int r) {
+    	w.println(String.format(csvPattern, r, h, k, n, infectedCount, msgCount));
+    }
+    
+    
 
     public static void main(String[] args) {
-        new Simulation(70, 6, 1000).run();
+    	IntStream.iterate(10, i -> i * 2).limit(10000).parallel().forEach(n -> {
+    		int maxH = (int) Math.log(n) * 2;
+    		IntStream.range(1, maxH).parallel().forEach(h -> {
+    			IntStream.iterate(1, i -> i * 2).limit((long) Math.log(n)).forEach(k -> {
+    				if (k > n) {
+    					return;
+    				}
+    				new Simulation(h, k, n).run();
+    			});
+    		});
+    	});
     }
 }
