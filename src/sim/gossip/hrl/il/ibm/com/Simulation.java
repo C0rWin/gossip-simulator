@@ -116,8 +116,7 @@ public class Simulation {
 	} // pullPhase
 
 	private List<Integer> selectRandomInfectedPeers() {
-		List<Integer> peers = new ArrayList<>();
-		peers.addAll(infectedPeers);
+		List<Integer> peers = new ArrayList<>(infectedPeers);
 		Collections.shuffle(peers);
 		if (peers.size() <= a) {
 			return peers;
