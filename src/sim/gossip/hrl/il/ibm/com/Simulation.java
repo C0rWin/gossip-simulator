@@ -3,7 +3,6 @@ package sim.gossip.hrl.il.ibm.com;
 import java.io.FileNotFoundException;
 import java.io.PrintWriter;
 import java.util.*;
-import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 public class Simulation {
