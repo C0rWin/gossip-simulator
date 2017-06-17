@@ -3,6 +3,7 @@ package sim.gossip.hrl.il.ibm.com;
 import java.io.FileNotFoundException;
 import java.io.PrintWriter;
 import java.util.*;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 public class Simulation {
@@ -59,12 +60,14 @@ public class Simulation {
 			return;
 		}
 
-		int removedCount = 0;
-		for (Iterator<Integer> i = newInfections.iterator(); i.hasNext() && removedCount < a;) {
-			i.next();
-			removedCount++;
-			i.remove();
-		}
+		// Compute non infected peers
+		List<Integer> nonInfected = new ArrayList<>();
+		IntStream.range(0, n).filter(p -> ! peers[p]).forEach(p -> nonInfected.add(p));
+		Collections.shuffle(nonInfected);
+		// Adversary selects a specified peers out of the non infected peers
+		List<Integer> blocked = nonInfected.subList(0, a);
+		// And blocks the peers from being infected in the next round
+		newInfections.removeAll(blocked);
 	}
 
 	private void round(int r) {
