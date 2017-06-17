@@ -95,14 +95,14 @@ public class Simulation {
 	} // forwardingPhase
 
 	private void pullPhase() {
+		// Adversary tries to block a portion of infected peers that got the
+		// message
+		List<Integer> blockedPeers = selectRandomInfectedPeers();
 		for (int p = 0; p < peers.length; p++) {
 			// Already infected, nothing to do
 			if (peers[p]) {
 				continue;
 			}
-			// Adversary tries to block a portion of infected peers that got the
-			// message
-			List<Integer> blockedPeers = selectRandomInfectedPeers();
 			// Else select some peers to pull the message from
 			boolean pullSucceeded = selectRandomPeers().stream().filter(q -> !blockedPeers.contains(q))
 					.anyMatch(q -> peers[q]);
