@@ -19,7 +19,7 @@ public class Simulation {
     private int infectedCount;
     private Random rnd = new Random(System.currentTimeMillis());
     private int msgCount;
-    private PrintWriter w;
+    private static PrintWriter w;
 
     public Simulation(int h, int k, int n) {
         if (k > n) {
@@ -29,12 +29,6 @@ public class Simulation {
         this.k = k;
         this.n = n;
         this.peers = new boolean[n];
-        try {
-			w = new PrintWriter(String.format("n%d-k%d-h%d.csv", n, k, h));
-			w.println("r,h,k,n,infected,msgs");
-		} catch (FileNotFoundException e) {
-			throw new RuntimeException(e);
-		}
     }
 
     public void run() {
@@ -44,8 +38,6 @@ public class Simulation {
         for (int i = 0; i < lastRound; i++) {
             round(i);
         }
-        w.flush();
-        w.close();
     }
 
     private void round(int r) {
@@ -110,9 +102,16 @@ public class Simulation {
     }
     
     public static void main(String[] args) {
-    	IntStream.iterate(10, i -> i * 2).limit((long) Math.log(10000)).parallel().forEach(n -> {
+        try {
+			w = new PrintWriter("log.csv");
+			w.println("r,h,k,n,infected,msgs");
+		} catch (FileNotFoundException e) {
+			e.printStackTrace();
+			return;
+		}
+    	IntStream.iterate(10, i -> i * 2).limit((long) Math.log(10000)).forEach(n -> {
     		int maxH = (int) Math.log(n) * 2;
-    		IntStream.range(1, maxH).parallel().forEach(h -> {
+    		IntStream.range(1, maxH).forEach(h -> {
     			IntStream.iterate(1, i -> i * 2).limit((long) Math.log(n)).forEach(k -> {
     				if (k > n) {
     					return;
@@ -121,5 +120,7 @@ public class Simulation {
     			});
     		});
     	});
+        w.flush();
+        w.close();
     }
 }
