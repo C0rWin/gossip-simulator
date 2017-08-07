@@ -3,11 +3,12 @@ package sim.gossip.hrl.il.ibm.com;
 import java.io.FileNotFoundException;
 import java.io.PrintWriter;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.IntStream;
 
 public class Simulation {
 
-	private static final String csvPattern = "%d,%d,%d,%d,%d,%d,%d";
+	private static final String csvPattern = "%d,%d,%d,%d,%d,%d,%d,%d";
 
 	private int maxTTL;
 	private int h;
@@ -22,11 +23,25 @@ public class Simulation {
 	private int infectedCount;
 	private Random rnd = new Random(System.currentTimeMillis());
 	private int msgCount;
-	private static PrintWriter w;
+	private PrintWriter w;
+	
+	private static Map<String, PrintWriter> writers = new ConcurrentHashMap<>();
 
 	public Simulation(int h, int k, int n, int a, int ttl) {
 		if (k > n) {
 			throw new RuntimeException("k(" + k + ") must be less than n(" + n + ")");
+		}
+		try {
+			String writerId = n + "." + h;
+			if (! writers.containsKey(writerId)) {
+				PrintWriter writer = new PrintWriter("log_n-" + n + "_h-" + h + ".csv");
+				writer.println("r,h,k,n,a,ttl,infected,msgs");
+				writer.flush();
+				writers.put(writerId, writer);
+			}
+			w = writers.get(writerId);
+		} catch (FileNotFoundException e) {
+			throw new RuntimeException(e);
 		}
 		this.h = h;
 		this.k = k;
@@ -44,8 +59,9 @@ public class Simulation {
 		for (int i = 0; i < lastRound; i++) {
 			round(i);
 		}
+		w.flush();
 	}
-
+	
 	private void filterOutInfectedPeers(Set<Integer> in) {
 		Iterator<Integer> i = in.iterator();
 		while (i.hasNext()) {
@@ -154,22 +170,15 @@ public class Simulation {
 	}
 
 	private void log(int r) {
-		w.println(String.format(csvPattern, r, h, k, n, a, infectedCount, msgCount));
+		w.println(String.format(csvPattern, r, h, k, n, a, maxTTL, infectedCount, msgCount));
 	}
 
 	public static void main(String[] args) {
-		try {
-			w = new PrintWriter("log.csv");
-			w.println("r,h,k,n,a,infected,msgs");
-		} catch (FileNotFoundException e) {
-			e.printStackTrace();
-			return;
-		}
-		IntStream.iterate(10, i -> i * 2).limit((long) Math.log(10000)).forEach(n -> {
+		IntStream.of(1000, 2000, 16000, 32000, 64000).parallel().forEach(n -> {
 			IntStream.iterate(0, i -> i + n / 10).limit(5).forEach(a -> {
-				int maxH = (int) Math.log(n) * 2;
-				IntStream.range(1, maxH).forEach(h -> {
-					IntStream.iterate(1, i -> i * 2).limit((long) Math.log(n)).forEach(k -> {
+				int maxH = (int) Math.log(n);
+				IntStream.range(1, maxH).parallel().forEach(h -> {
+					IntStream.iterate(1, i -> i + 1).limit(2 * (long) Math.log(n)).forEach(k -> {
 						if (k > n) {
 							return;
 						}
@@ -180,7 +189,5 @@ public class Simulation {
 				});
 			});
 		});
-		w.flush();
-		w.close();
 	}
 }
