@@ -9,12 +9,14 @@ public class Simulation {
 
 	private static final String csvPattern = "%d,%d,%d,%d,%d,%d,%d";
 
+	private int maxTTL;
 	private int h;
 	private int k;
 	private int n;
 	private int a;
 	private int lastRound;
 	private boolean[] peers;
+	private int[] ttl;
 	private Set<Integer> newInfections = new HashSet<Integer>();
 	private LinkedList<Integer> infectedPeers = new LinkedList<Integer>();
 	private int infectedCount;
@@ -22,7 +24,7 @@ public class Simulation {
 	private int msgCount;
 	private static PrintWriter w;
 
-	public Simulation(int h, int k, int n, int a) {
+	public Simulation(int h, int k, int n, int a, int ttl) {
 		if (k > n) {
 			throw new RuntimeException("k(" + k + ") must be less than n(" + n + ")");
 		}
@@ -30,6 +32,8 @@ public class Simulation {
 		this.k = k;
 		this.n = n;
 		this.a = a;
+		this.ttl = new int[n];
+		this.maxTTL = ttl;
 		this.peers = new boolean[n];
 	}
 
@@ -81,9 +85,15 @@ public class Simulation {
 	private void forwardingPhase() {
 		while (!infectedPeers.isEmpty()) {
 			int p = infectedPeers.removeFirst();
-			peers[p] = true;
-			infectedCount++;
+			// If it's the first infection of p:
+			if (! peers[p]) {
+				peers[p] = true;
+				infectedCount++;
+				ttl[p] = maxTTL;
+			}
+			// p selects K peers and sends them the message
 			msgCount += k;
+			ttl[p]--;
 			newInfections.addAll(selectRandomPeers());
 		} // while
 
@@ -92,6 +102,12 @@ public class Simulation {
 		denialOfService();
 		infectedPeers.addAll(newInfections);
 		newInfections.clear();
+		// Add all peers with TTL > 0 to the infectedPeers to send the message next round
+		for (int p = 0; p < ttl.length; p++) {
+			if (ttl[p] > 0) {
+				infectedPeers.add(p);
+			}
+		}
 	} // forwardingPhase
 
 	private void pullPhase() {
@@ -157,7 +173,9 @@ public class Simulation {
 						if (k > n) {
 							return;
 						}
-						new Simulation(h, k, n, a).run();
+						IntStream.range(1, 10).forEach(ttl -> {
+							new Simulation(h, k, n, a, ttl).run();	
+						});
 					});
 				});
 			});
