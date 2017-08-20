@@ -1,12 +1,17 @@
 package sim.gossip.hrl.il.ibm.com;
 
-import java.io.FileNotFoundException;
+import java.io.ByteArrayOutputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 
-public class Simulation {
+public class Simulation implements Runnable {
 
 	private static final String csvPattern = "%d,%d,%d,%d,%d,%d,%d,%d";
 
@@ -25,24 +30,13 @@ public class Simulation {
 	private int msgCount;
 	private PrintWriter w;
 	
-	private static Map<String, PrintWriter> writers = new ConcurrentHashMap<>();
+	private static AtomicInteger activeJobs = new AtomicInteger(0);
 
-	public Simulation(int h, int k, int n, int a, int ttl) {
+	public Simulation(int h, int k, int n, int a, int ttl, OutputStream out) {
 		if (k > n) {
 			throw new RuntimeException("k(" + k + ") must be less than n(" + n + ")");
 		}
-		try {
-			String writerId = n + "." + h;
-			if (! writers.containsKey(writerId)) {
-				PrintWriter writer = new PrintWriter("log_n-" + n + "_h-" + h + ".csv");
-				writer.println("r,h,k,n,a,ttl,infected,msgs");
-				writer.flush();
-				writers.put(writerId, writer);
-			}
-			w = writers.get(writerId);
-		} catch (FileNotFoundException e) {
-			throw new RuntimeException(e);
-		}
+		w =  new PrintWriter(out);
 		this.h = h;
 		this.k = k;
 		this.n = n;
@@ -60,6 +54,8 @@ public class Simulation {
 			round(i);
 		}
 		w.flush();
+		w.close();
+		activeJobs.decrementAndGet();
 	}
 	
 	private void filterOutInfectedPeers(Set<Integer> in) {
@@ -172,9 +168,25 @@ public class Simulation {
 	private void log(int r) {
 		w.println(String.format(csvPattern, r, h, k, n, a, maxTTL, infectedCount, msgCount));
 	}
+	
+	private static void sleep(int seconds) {
+		try {
+			Thread.sleep(1000 * seconds);
+		} catch (InterruptedException e) {
+		}
+	}
 
 	public static void main(String[] args) {
-		IntStream.of(1000, 2000, 16000, 32000, 64000).parallel().forEach(n -> {
+		AtomicInteger iterations = new AtomicInteger();
+		
+		Vector<ByteArrayOutputStream> simResults = new Vector<ByteArrayOutputStream>();
+		IntStream.range(1, 13000).forEach( i-> {
+			simResults.add(new ByteArrayOutputStream());
+		});
+		
+		ThreadPoolExecutor pool = (ThreadPoolExecutor) Executors.newFixedThreadPool(90);
+
+		IntStream.of(1000, 2000, 16000).parallel().forEach(n -> {
 			IntStream.iterate(0, i -> i + n / 10).limit(5).forEach(a -> {
 				int maxH = (int) Math.log(n);
 				IntStream.range(1, maxH).parallel().forEach(h -> {
@@ -183,11 +195,37 @@ public class Simulation {
 							return;
 						}
 						IntStream.range(1, 10).forEach(ttl -> {
-							new Simulation(h, k, n, a, ttl).run();	
+							Simulation sim = new Simulation(h, k, n, a, ttl, simResults.get(iterations.get()));
+							activeJobs.incrementAndGet();
+							pool.execute(sim);
+							iterations.incrementAndGet();
 						});
 					});
 				});
 			});
 		});
+
+		while (true) {
+			sleep(1);
+			System.out.println(iterations.get() + "/" + 12960);
+			System.out.println("Active jobs:" + activeJobs.get());
+			if (activeJobs.get() == 0) {
+				pool.shutdown();
+				break;
+			}
+		}
+		
+		try {
+			FileOutputStream fos = new FileOutputStream("sim.csv");
+			for (ByteArrayOutputStream simRes : simResults) {
+				simRes.writeTo(fos);
+			}
+			fos.flush();
+			fos.close();
+			System.exit(0);
+		} catch (IOException e) {
+			e.printStackTrace();
+			System.exit(1);
+		}
 	}
 }
