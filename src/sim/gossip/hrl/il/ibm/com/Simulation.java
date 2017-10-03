@@ -195,10 +195,9 @@ public class Simulation implements Runnable {
 							return;
 						}
 						IntStream.range(1, 10).forEach(ttl -> {
-							Simulation sim = new Simulation(h, k, n, a, ttl, simResults.get(iterations.get()));
+							Simulation sim = new Simulation(h, k, n, a, ttl, simResults.get(iterations.getAndIncrement()));
 							activeJobs.incrementAndGet();
 							pool.execute(sim);
-							iterations.incrementAndGet();
 						});
 					});
 				});
