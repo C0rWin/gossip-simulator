@@ -194,7 +194,7 @@ public class Simulation implements Runnable {
 						if (k > n) {
 							return;
 						}
-						IntStream.range(1, 10).forEach(ttl -> {
+						IntStream.range(1, 10).parallel().forEach(ttl -> {
 							Simulation sim = new Simulation(h, k, n, a, ttl, simResults.get(iterations.getAndIncrement()));
 							activeJobs.incrementAndGet();
 							pool.execute(sim);
