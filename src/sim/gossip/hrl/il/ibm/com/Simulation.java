@@ -214,6 +214,7 @@ public class Simulation implements Runnable {
 		private Set<Integer> notInfected = new HashSet<>();						// Set of peers that are currently not infected
 		private Set<Integer> adversaryNotInfectedView = new HashSet<>();		// Set of peers that are not infected as viewed by the adversary
 		private LinkedList<Set<Integer>> infectedByRounds = new LinkedList<Set<Integer>>();	// Sets of peers that were infected in each round
+		private Random rnd = new Random(System.currentTimeMillis());
 
 		public PeerList(int n) {
 			ttl = new int[n];
@@ -227,28 +228,11 @@ public class Simulation implements Runnable {
 		}
 
 		public Set<Integer> randomNoneInfectedPeers(double epsilon) {
-			int amountToBeSelected = (int) (epsilon * infected.length);
-			// If we want to select more peers than we have, return all of them.
-			if (amountToBeSelected >= adversaryNotInfectedView.size()) {
-				return new HashSet<>(adversaryNotInfectedView);
-			}
-			// Order the none infected in previous round in a random order
 			List<Integer> notInfectedList = new ArrayList<>(adversaryNotInfectedView);
 			Collections.shuffle(notInfectedList);
-			
-			Set<Integer> result = new HashSet<Integer>();
-			Iterator<Integer> it = notInfectedList.iterator();
-			// Iterate over the none infected peers, and select <amountToBeSelected> from them, such that
-			// we select each peer only once.
-			while (result.size() < amountToBeSelected) {
-				int p = it.next();
-				if (result.contains(p)) {
-					continue;
-				}
-				result.add(p);
-			}
-
-			return result;
+			return notInfectedList.stream().filter(p -> {
+				return rnd.nextDouble() < epsilon;
+			}).collect(Collectors.toSet());
 		}
 
 		public Stream<Integer> withRemainingTTL() {
