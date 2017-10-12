@@ -9,80 +9,60 @@ import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
+import java.util.stream.DoubleStream;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 public class Simulation implements Runnable {
 
-	private static final String csvPattern = "%d,%d,%d,%d,%d,%d,%d,%d";
+	private static final String csvPattern = "%d,%d,%d,%d,%f,%d,%d,%d";
 
 	private int maxTTL;
 	private int h;
 	private int k;
 	private int n;
-	private int a;
+	private double a;
 	private int lastRound;
-	private boolean[] peers;
-	private int[] ttl;
-	private Set<Integer> newInfections = new HashSet<Integer>();
-	private LinkedList<Integer> infectedPeers = new LinkedList<Integer>();
+	
+
+	private PeerList peers;
+
 	private int infectedCount;
 	private Random rnd = new Random(System.currentTimeMillis());
 	private int msgCount;
 	private PrintWriter w;
-	
+
 	private static AtomicInteger activeJobs = new AtomicInteger(0);
 
-	public Simulation(int h, int k, int n, int a, int ttl, OutputStream out) {
+	public Simulation(int h, int k, int n, double a, int ttl, OutputStream out) {
 		if (k > n) {
 			throw new RuntimeException("k(" + k + ") must be less than n(" + n + ")");
 		}
-		w =  new PrintWriter(out);
+		w = new PrintWriter(out);
 		this.h = h;
 		this.k = k;
 		this.n = n;
 		this.a = a;
-		this.ttl = new int[n];
 		this.maxTTL = ttl;
-		this.peers = new boolean[n];
+		this.peers = new PeerList(n);
 	}
 
 	public void run() {
-		lastRound = (int) (n * Math.log(n));
-		// Some peer is infected at first
-		infectedPeers.add((int) (Math.random() * n));
-		for (int i = 0; i < lastRound; i++) {
-			round(i);
-		}
-		w.flush();
-		w.close();
-		activeJobs.decrementAndGet();
-	}
-	
-	private void filterOutInfectedPeers(Set<Integer> in) {
-		Iterator<Integer> i = in.iterator();
-		while (i.hasNext()) {
-			int p = i.next();
-			// If p has already been infected, remove it
-			if (peers[p]) {
-				i.remove();
+		try {
+			lastRound = (int) (n * Math.log(n));
+			// Some peer is infected at first
+			peers.infect((int) (Math.random() * n));
+			for (int i = 0; i < lastRound; i++) {
+				round(i);
 			}
+			w.flush();
+			w.close();
+			activeJobs.decrementAndGet();
+		} catch (Exception e) {
+			e.printStackTrace();
+			System.exit(1);
 		}
-	}
-
-	private void denialOfService() {
-		if (newInfections.size() <= a) {
-			newInfections.clear();
-			return;
-		}
-
-		// Compute non infected peers
-		List<Integer> nonInfected = new ArrayList<>();
-		IntStream.range(0, n).filter(p -> ! peers[p]).forEach(p -> nonInfected.add(p));
-		Collections.shuffle(nonInfected);
-		// Adversary selects a specified peers out of the non infected peers
-		List<Integer> blocked = nonInfected.subList(0, a);
-		// And blocks the peers from being infected in the next round
-		newInfections.removeAll(blocked);
 	}
 
 	private void round(int r) {
@@ -91,84 +71,82 @@ public class Simulation implements Runnable {
 		} else {
 			pullPhase();
 		}
+		peers.incrementRound(r);
 		log(r);
 	} // round
 
 	private void forwardingPhase() {
-		while (!infectedPeers.isEmpty()) {
-			int p = infectedPeers.removeFirst();
-			// If it's the first infection of p:
-			if (! peers[p]) {
-				peers[p] = true;
-				infectedCount++;
-				ttl[p] = maxTTL;
-			}
-			// p selects K peers and sends them the message
-			msgCount += k;
-			ttl[p]--;
-			newInfections.addAll(selectRandomPeers());
-		} // while
-
-		// Add all new infections to the infection queue
-		filterOutInfectedPeers(newInfections);
-		denialOfService();
-		infectedPeers.addAll(newInfections);
-		newInfections.clear();
-		// Add all peers with TTL > 0 to the infectedPeers to send the message next round
-		for (int p = 0; p < ttl.length; p++) {
-			if (ttl[p] > 0) {
-				infectedPeers.add(p);
-			}
-		}
+		// First, figure out which peers don't have the message:
+		Set<Integer> attackedPeers = peers.randomNoneInfectedPeers(a);
+		Set<Integer> peersToBeInfected = new HashSet<>();
+		// We still have peers that forward the message again because
+		// their TTL isn't 0.
+		// Start with them as actors from the previous round(s), but omit the ones that
+		// are denied of service in this round.
+		// Note: the peers that were infected in the previous round, are also included
+		// here implicitly since their TTL is > 0.
+		Set<Integer> actingPeers = peers.withRemainingTTL().filter(p -> {
+			return ! attackedPeers.contains(p);
+		}).collect(Collectors.toSet());
+		
+		// Now, have each acting peer disseminate to a random set of peers.
+		actingPeers.forEach(p -> {
+			// peer p forwards to q
+			selectRandomPeers(p).forEach(q -> {
+				if (attackedPeers.contains(q)) {
+					return;
+				}
+				// q has yet to be infected
+				if (!peers.infected[q]) {
+					// It will be marked as infected at the end of this round.
+					peersToBeInfected.add(q);
+					infectedCount++;
+					peers.ttl[p] = maxTTL;
+				}
+				msgCount += k;
+				peers.ttl[p]--;
+			});
+		});
+		peers.infect(peersToBeInfected);
 	} // forwardingPhase
 
 	private void pullPhase() {
-		// Adversary tries to block a portion of infected peers that got the
-		// message
-		List<Integer> blockedPeers = selectRandomInfectedPeers();
-		for (int p = 0; p < peers.length; p++) {
-			// Already infected, nothing to do
-			if (peers[p]) {
-				continue;
-			}
-			// Else select some peers to pull the message from
-			boolean pullSucceeded = selectRandomPeers().stream().filter(q -> !blockedPeers.contains(q))
-					.anyMatch(q -> peers[q]);
+		Set<Integer> attackedPeers = peers.randomNoneInfectedPeers(a);
+		Set<Integer> peersToBeInfected = new HashSet<>();
+		// Select peers that are not infected and are not denied of service.
+		peers.notInfected.stream().filter(p -> {
+			return (! attackedPeers.contains(p));
+		}).forEach(p -> {
+			// Select some peers that are not denied of service, to pull the message from
+			boolean pullSucceeded = selectRandomPeers(p).filter(q -> !attackedPeers.contains(q))
+					.anyMatch(q -> peers.infected[q]);
 			msgCount += k;
 			if (pullSucceeded) {
-				peers[p] = true;
+				peersToBeInfected.add(p);
 				infectedCount++;
 			}
-		}
+		});
+		peers.infect(peersToBeInfected);
 	} // pullPhase
 
-	private List<Integer> selectRandomInfectedPeers() {
-		List<Integer> peers = new ArrayList<>(infectedPeers);
-		Collections.shuffle(peers);
-		if (peers.size() <= a) {
-			return peers;
-		}
-		return peers.subList(0, a);
-	}
-
-	private List<Integer> selectRandomPeers() {
+	private Stream<Integer> selectRandomPeers(int self) {
 		List<Integer> peers = new ArrayList<>();
 		// N >> k so it's ok not to check corner cases
 
 		while (peers.size() < k) {
 			int p = rnd.nextInt(n);
-			if (peers.contains(p)) {
+			if (peers.contains(p) || p == self) {
 				continue;
 			}
 			peers.add(p);
 		}
-		return peers;
+		return peers.stream();
 	}
 
 	private void log(int r) {
 		w.println(String.format(csvPattern, r, h, k, n, a, maxTTL, infectedCount, msgCount));
 	}
-	
+
 	private static void sleep(int seconds) {
 		try {
 			Thread.sleep(1000 * seconds);
@@ -178,28 +156,30 @@ public class Simulation implements Runnable {
 
 	public static void main(String[] args) {
 		AtomicInteger iterations = new AtomicInteger();
-		
+
 		Vector<ByteArrayOutputStream> simResults = new Vector<ByteArrayOutputStream>();
-		IntStream.range(1, 13000).forEach( i-> {
+		IntStream.range(1, 13000).forEach(i -> {
 			simResults.add(new ByteArrayOutputStream());
 		});
-		
+
 		ThreadPoolExecutor pool = (ThreadPoolExecutor) Executors.newFixedThreadPool(90);
 
-		IntStream.of(1000, 2000, 16000).parallel().forEach(n -> {
-			IntStream.iterate(0, i -> i + n / 10).limit(5).forEach(a -> {
+		IntStream.of(10000).parallel().forEach(n -> {
+			DoubleStream.iterate(0, i -> i + 0.1).limit(5).forEach(a -> {
 				int maxH = (int) Math.log(n);
 				IntStream.range(1, maxH).parallel().forEach(h -> {
-					IntStream.iterate(1, i -> i + 1).limit(2 * (long) Math.log(n)).forEach(k -> {
+					//IntStream.iterate(1, i -> i + 1).limit(2 * (long) Math.log(n)).forEach(k -> {
+						int k = (int) Math.log(n);
 						if (k > n) {
 							return;
 						}
 						IntStream.range(1, 10).parallel().forEach(ttl -> {
-							Simulation sim = new Simulation(h, k, n, a, ttl, simResults.get(iterations.getAndIncrement()));
+							Simulation sim = new Simulation(h, k, n, a, ttl,
+									simResults.get(iterations.getAndIncrement()));
 							activeJobs.incrementAndGet();
 							pool.execute(sim);
 						});
-					});
+					//});
 				});
 			});
 		});
@@ -213,7 +193,7 @@ public class Simulation implements Runnable {
 				break;
 			}
 		}
-		
+
 		try {
 			FileOutputStream fos = new FileOutputStream("sim.csv");
 			for (ByteArrayOutputStream simRes : simResults) {
@@ -227,4 +207,79 @@ public class Simulation implements Runnable {
 			System.exit(1);
 		}
 	}
+
+	public static class PeerList {
+		private int[] ttl;
+		private boolean[] infected;												// Current state of the peer
+		private Set<Integer> notInfected = new HashSet<>();						// Set of peers that are currently not infected
+		private Set<Integer> adversaryNotInfectedView = new HashSet<>();		// Set of peers that are not infected as viewed by the adversary
+		private LinkedList<Set<Integer>> infectedByRounds = new LinkedList<Set<Integer>>();	// Sets of peers that were infected in each round
+
+		public PeerList(int n) {
+			ttl = new int[n];
+			infected = new boolean[n];
+			IntStream.range(0, n).forEach(i -> {
+				notInfected.add(i);
+				adversaryNotInfectedView.add(i);
+			});
+			
+			infectedByRounds.add(new HashSet<>());
+		}
+
+		public Set<Integer> randomNoneInfectedPeers(double epsilon) {
+			int amountToBeSelected = (int) (epsilon * infected.length);
+			// If we want to select more peers than we have, return all of them.
+			if (amountToBeSelected >= adversaryNotInfectedView.size()) {
+				return new HashSet<>(adversaryNotInfectedView);
+			}
+			// Order the none infected in previous round in a random order
+			List<Integer> notInfectedList = new ArrayList<>(adversaryNotInfectedView);
+			Collections.shuffle(notInfectedList);
+			
+			Set<Integer> result = new HashSet<Integer>();
+			Iterator<Integer> it = notInfectedList.iterator();
+			// Iterate over the none infected peers, and select <amountToBeSelected> from them, such that
+			// we select each peer only once.
+			while (result.size() < amountToBeSelected) {
+				int p = it.next();
+				if (result.contains(p)) {
+					continue;
+				}
+				result.add(p);
+			}
+
+			return result;
+		}
+
+		public Stream<Integer> withRemainingTTL() {
+			return Arrays.stream(ttl).boxed().filter(c -> {
+				return c > 0;
+			});
+		}
+		
+		public void incrementRound(int round) {
+			// In end of round 0 the adversary doesn't know anything 
+			if (round == 0) {
+				return;
+			}
+			Set<Integer> infectedInLastRound = infectedByRounds.removeFirst();
+			adversaryNotInfectedView.removeAll(infectedInLastRound);
+			infectedByRounds.add(new HashSet<>());
+		}
+		
+		public void infect(Collection<Integer> peers) {
+			peers.stream().forEach(p -> {
+				infected[p] = true;
+			});
+			infectedByRounds.getLast().addAll(peers);
+			notInfected.removeAll(peers);
+		}
+
+		public void infect(int p) {
+			infected[p] = true;
+			infectedByRounds.getLast().add(p);
+			notInfected.remove(p);
+		}
+	}
+
 }
