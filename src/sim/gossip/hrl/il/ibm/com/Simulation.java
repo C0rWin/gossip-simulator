@@ -243,11 +243,10 @@ public class Simulation implements Runnable {
 		
 		public void incrementRound(int round) {
 			// In end of round 0 the adversary doesn't know anything 
-			if (round == 0) {
-				return;
+			if (round > 0) {
+				Set<Integer> infectedInLastRound = infectedByRounds.removeFirst();
+				adversaryNotInfectedView.removeAll(infectedInLastRound);
 			}
-			Set<Integer> infectedInLastRound = infectedByRounds.removeFirst();
-			adversaryNotInfectedView.removeAll(infectedInLastRound);
 			infectedByRounds.add(new HashSet<>());
 		}
 		
