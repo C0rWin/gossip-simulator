@@ -52,7 +52,9 @@ public class Simulation implements Runnable {
 		try {
 			lastRound = (int) (n * Math.log(n));
 			// Some peer is infected at first
-			peers.infect((int) (Math.random() * n));
+			int p = (int) (Math.random() * n);
+			peers.infect(p);
+			peers.ttl[p] = maxTTL;
 			for (int i = 0; i < lastRound; i++) {
 				round(i);
 			}
@@ -88,7 +90,6 @@ public class Simulation implements Runnable {
 		Set<Integer> actingPeers = peers.withRemainingTTL().filter(p -> {
 			return ! attackedPeers.contains(p);
 		}).collect(Collectors.toSet());
-		
 		// Now, have each acting peer disseminate to a random set of peers.
 		actingPeers.forEach(p -> {
 			// peer p forwards to q
@@ -101,11 +102,11 @@ public class Simulation implements Runnable {
 					// It will be marked as infected at the end of this round.
 					peersToBeInfected.add(q);
 					infectedCount++;
-					peers.ttl[p] = maxTTL;
+					peers.ttl[q] = maxTTL;
 				}
-				msgCount += k;
 				peers.ttl[p]--;
 			});
+			msgCount += k;
 		});
 		peers.infect(peersToBeInfected);
 	} // forwardingPhase
@@ -168,18 +169,17 @@ public class Simulation implements Runnable {
 			DoubleStream.iterate(0, i -> i + 0.1).limit(5).forEach(a -> {
 				int maxH = (int) Math.log(n);
 				IntStream.range(1, maxH).parallel().forEach(h -> {
-					//IntStream.iterate(1, i -> i + 1).limit(2 * (long) Math.log(n)).forEach(k -> {
-						int k = (int) Math.log(n);
+					IntStream.iterate(1, i -> i + 1).limit(10).forEach(k -> {
 						if (k > n) {
 							return;
 						}
-						IntStream.range(1, 10).parallel().forEach(ttl -> {
+						IntStream.range(1, 2).parallel().forEach(ttl -> {
 							Simulation sim = new Simulation(h, k, n, a, ttl,
 									simResults.get(iterations.getAndIncrement()));
 							activeJobs.incrementAndGet();
 							pool.execute(sim);
 						});
-					//});
+					});
 				});
 			});
 		});
